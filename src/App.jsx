@@ -100,6 +100,40 @@ const canEvolve = (p) => !!EVO[p.id];
 
 const SHEET_COLS = 30, SHEET_CELL = 48;
 const TSHEET_COLS = 10, TSHEET_CELL = 80;
+
+/* Sheet health check — if a spritesheet fails to load, fall back to per-Pokémon images */
+const sheetStatus = {};
+const sheetListeners = {};
+const probeSheet = (url) => {
+  if (sheetStatus[url]) return;
+  sheetStatus[url] = "loading";
+  const im = new Image();
+  im.onload = () => { sheetStatus[url] = "ok"; (sheetListeners[url] || []).forEach((f) => f("ok")); };
+  im.onerror = () => { sheetStatus[url] = "fail"; (sheetListeners[url] || []).forEach((f) => f("fail")); };
+  im.src = url;
+};
+const useSheet = (url) => {
+  const [st, setSt] = useState(sheetStatus[url] === "fail" ? "fail" : "ok");
+  useEffect(() => {
+    probeSheet(url);
+    if (sheetStatus[url] === "ok" || sheetStatus[url] === "fail") { setSt(sheetStatus[url]); return; }
+    const f = (s) => setSt(s);
+    (sheetListeners[url] = sheetListeners[url] || []).push(f);
+    return () => { sheetListeners[url] = (sheetListeners[url] || []).filter((x) => x !== f); };
+  }, [url]);
+  return st !== "fail";
+};
+const rawSprite = (id) =>
+  `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${id}.png`;
+
+const Pokeball = ({ size }) => (
+  <div style={{ width:size*.62, height:size*.62, borderRadius:"50%", position:"relative",
+    background:"linear-gradient(180deg,#E3350D 48%,#0b0f1e 48%,#0b0f1e 52%,#fff 52%)",
+    border:"3px solid #1c2440" }}>
+    <div style={{ position:"absolute", inset:0, margin:"auto", width:"26%", height:"26%",
+      borderRadius:"50%", background:"#fff", border:"3px solid #1c2440" }}/>
+  </div>
+);
 const trainerKey = (name) =>
   ({ "Lt. Surge":"Lt._Surge", "Tate & Liza":"Tate_and_Liza", "Crasher Wake":"Crasher_Wake" }[name] || name);
 
@@ -234,30 +268,45 @@ const TypeBadge = ({ t, size = 10 }) => (
 );
 
 const Sprite = ({ id, size = 96, glow, bounce }) => {
+  const sheetOk = useSheet(POKESHEET);
+  const [imgFail, setImgFail] = useState(false);
   const scale = size / SHEET_CELL;
   const col = (id - 1) % SHEET_COLS, row = Math.floor((id - 1) / SHEET_COLS);
   const ROWS = Math.ceil(905 / SHEET_COLS);
+  if (sheetOk) {
+    return (
+      <div className={bounce ? "spriteBounce" : ""} role="img" aria-label={byId(id).name} style={{
+        width: size, height: size,
+        backgroundImage: `url(${POKESHEET})`,
+        backgroundSize: `${SHEET_COLS * SHEET_CELL * scale}px ${ROWS * SHEET_CELL * scale}px`,
+        backgroundPosition: `-${col * SHEET_CELL * scale}px -${row * SHEET_CELL * scale}px`,
+        imageRendering: "pixelated",
+        filter: glow ? `drop-shadow(0 0 14px ${glow})` : "none",
+      }}/>
+    );
+  }
   return (
     <div className={bounce ? "spriteBounce" : ""} style={{
-      width: size, height: size,
-      backgroundImage: `url(${POKESHEET})`,
-      backgroundSize: `${SHEET_COLS * SHEET_CELL * scale}px ${ROWS * SHEET_CELL * scale}px`,
-      backgroundPosition: `-${col * SHEET_CELL * scale}px -${row * SHEET_CELL * scale}px`,
-      imageRendering: "pixelated",
-      filter: glow ? `drop-shadow(0 0 14px ${glow})` : "none",
-    }}/>
+      width:size, height:size, display:"flex", alignItems:"center", justifyContent:"center",
+      filter: glow ? `drop-shadow(0 0 14px ${glow})` : "none" }}>
+      {imgFail ? <Pokeball size={size}/> : (
+        <img src={rawSprite(id)} alt={byId(id).name} onError={() => setImgFail(true)}
+          style={{ width:"100%", height:"100%", objectFit:"contain", imageRendering:"pixelated" }}/>
+      )}
+    </div>
   );
 };
 
 const Trainer = ({ name, size = 90, glow }) => {
+  const sheetOk = useSheet(TRAINERSHEET);
   const key = trainerKey(name);
   const idx = TRAINER_INDEX.names.indexOf(key);
-  const ok = idx >= 0 && TRAINER_INDEX.have[idx] === 1;
+  const ok = sheetOk && idx >= 0 && TRAINER_INDEX.have[idx] === 1;
   if (!ok) {
     return (
       <div style={{ width:size, height:size, borderRadius:"50%", background:"#1c2440",
         border:"3px solid #2a3354", display:"flex", alignItems:"center", justifyContent:"center",
-        fontFamily:"'Press Start 2P', monospace", fontSize:size*.3, color:"#5a6488",
+        fontFamily:"'Press Start 2P', monospace", fontSize:size*.3, color:"#7d87ad",
         filter: glow ? `drop-shadow(0 0 12px ${glow})` : "none" }}>
         {name[0]}
       </div>
@@ -301,13 +350,13 @@ const TierBadge = ({ bst, size = 12 }) => {
   );
 };
 
-const Btn = ({ children, onClick, color = "#FFCB05", disabled, big, ghost, style }) => (
-  <button onClick={onClick} disabled={disabled} className="gbtn" style={{
+const Btn = ({ children, onClick, color = "#FFCB05", disabled, big, ghost, style, cls }) => (
+  <button onClick={onClick} disabled={disabled} className={`gbtn ${cls || ""}`} style={{
     fontFamily: "'Press Start 2P', monospace",
     fontSize: big ? "clamp(11px,3.4vw,14px)" : "clamp(9px,2.9vw,11px)",
     padding: big ? "16px 22px" : "12px 14px", minHeight: 46,
     background: ghost ? "transparent" : disabled ? "#2a3354" : color,
-    color: ghost ? color : disabled ? "#5a6488" : "#0b0f1e",
+    color: ghost ? color : disabled ? "#7d87ad" : "#0b0f1e",
     border: ghost ? `2px solid ${color}` : "none",
     borderRadius: 6, cursor: disabled ? "not-allowed" : "pointer",
     boxShadow: disabled || ghost ? "none" : `0 4px 0 rgba(0,0,0,.45)`,
@@ -328,7 +377,7 @@ const Hud = ({ items }) => (
         <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:12, color: it.color }}>
           {it.icon} {it.value}
         </div>
-        <div style={{ fontFamily:"'IBM Plex Mono', monospace", fontSize:9, color:"#5a6488",
+        <div style={{ fontFamily:"'IBM Plex Mono', monospace", fontSize:9, color:"#7d87ad",
           letterSpacing:1, marginTop:3, textTransform:"uppercase" }}>{it.label}</div>
       </div>
     ))}
@@ -453,10 +502,10 @@ const Reel = ({ label, options, value, landed, spinning, onSpin, disabled }) => 
     ? options[face]
     : isLocked
       ? lockedOpt
-      : landed || { label: "RANDOM", color: "#5a6488" };
+      : landed || { label: "RANDOM", color: "#7d87ad" };
   return (
     <div style={{ textAlign:"center" }}>
-      <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:8, color:"#5a6488", letterSpacing:2, marginBottom:6 }}>
+      <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:9, color:"#7d87ad", letterSpacing:2, marginBottom:6 }}>
         {label} {isLocked && !spinning && <span style={{ color:"#FFCB05" }}>🔒</span>}
       </div>
       <div style={{ display:"flex", alignItems:"center", gap:6 }}>
@@ -469,10 +518,11 @@ const Reel = ({ label, options, value, landed, spinning, onSpin, disabled }) => 
           </div>
         </div>
         <button onClick={onSpin} disabled={disabled || spinning} className="reelArrow"
+          aria-label={`Randomize ${label.toLowerCase()} — costs one spin`}
           title={`Randomize ${label.toLowerCase()} (−1 spin)`}
           style={{ width:44, fontSize:15 }}>🎲</button>
       </div>
-      <div style={{ fontFamily:"'IBM Plex Mono', monospace", fontSize:9, color:"#5a6488", marginTop:4 }}>
+      <div className="reelHint" style={{ fontFamily:"'IBM Plex Mono', monospace", fontSize:10, color:"#7d87ad", marginTop:4 }}>
         {spinning ? "spinning…" : "🎲 = random (−1 spin)"}
       </div>
     </div>
@@ -493,7 +543,7 @@ const EvolveControl = ({ p, tokens, onEvolve, compact }) => {
           padding: compact ? "5px 7px" : "9px 12px", borderRadius:5,
           cursor: tokens > 0 ? "pointer" : "not-allowed",
           background: tokens > 0 ? "#B07CF5" : "#2a3354",
-          color: tokens > 0 ? "#0b0f1e" : "#5a6488", border:"none",
+          color: tokens > 0 ? "#0b0f1e" : "#7d87ad", border:"none",
           boxShadow: tokens > 0 ? "0 0 14px #B07CF566" : "none" }}>
         🧬 EVOLVE
       </button>
@@ -505,7 +555,7 @@ const EvolveControl = ({ p, tokens, onEvolve, compact }) => {
             <button key={id} onClick={() => go(id)} style={{ background:"transparent", border:"1px solid #2a3354",
               borderRadius:6, cursor:"pointer", padding:4 }}>
               <Sprite id={id} size={44}/>
-              <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:6, color:"#cfd6f4", marginTop:2 }}>{byId(id).name}</div>
+              <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:8, color:"#cfd6f4", marginTop:2 }}>{byId(id).name}</div>
             </button>
           ))}
         </div>
@@ -517,11 +567,12 @@ const EvolveControl = ({ p, tokens, onEvolve, compact }) => {
 const Modal = ({ onClose, children, border = "#FFCB05" }) => (
   <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(5,8,18,.85)", zIndex:100,
     display:"flex", alignItems:"center", justifyContent:"center", padding:16, backdropFilter:"blur(3px)" }}>
-    <div onClick={(e) => e.stopPropagation()} className="poof" style={{ background:"#11172e",
+    <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" className="poof" style={{ background:"#11172e",
       border:`3px solid ${border}`, borderRadius:14, padding:22, maxWidth:560, width:"100%",
       maxHeight:"86vh", overflowY:"auto", position:"relative" }}>
-      <button onClick={onClose} style={{ position:"absolute", top:10, right:12, background:"transparent",
-        border:"none", color:"#9aa6cf", fontFamily:"'Press Start 2P', monospace", fontSize:14, cursor:"pointer" }}>✕</button>
+      <button onClick={onClose} aria-label="Close" style={{ position:"absolute", top:6, right:6, background:"transparent",
+        border:"none", color:"#9aa6cf", fontFamily:"'Press Start 2P', monospace", fontSize:14, cursor:"pointer",
+        width:44, height:44 }}>✕</button>
       {children}
     </div>
   </div>
@@ -796,14 +847,14 @@ function DraftScreen({ config, onDone, tokens, setTokens }) {
             How many Evolution Tokens do you want to<br/>trade for extra spins? (1 token = 1 spin)
           </div>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:18, marginBottom:8 }}>
-            <button className="qtyBtn" onClick={() => setTradeQty((q) => Math.max(1, q - 1))} disabled={tradeQty <= 1}>−</button>
+            <button className="qtyBtn" aria-label="Trade one fewer token" onClick={() => setTradeQty((q) => Math.max(1, q - 1))} disabled={tradeQty <= 1}>−</button>
             <div style={{ textAlign:"center", minWidth:90 }}>
               <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:30, color:"#fff" }}>{tradeQty}</div>
               <div style={{ fontFamily:"'IBM Plex Mono', monospace", fontSize:11, color:"#9aa6cf", marginTop:4 }}>
                 of {tokens} token{tokens > 1 ? "s" : ""}
               </div>
             </div>
-            <button className="qtyBtn" onClick={() => setTradeQty((q) => Math.min(tokens, q + 1))} disabled={tradeQty >= tokens}>+</button>
+            <button className="qtyBtn" aria-label="Trade one more token" onClick={() => setTradeQty((q) => Math.min(tokens, q + 1))} disabled={tradeQty >= tokens}>+</button>
           </div>
           <div style={{ fontFamily:"'IBM Plex Mono', monospace", fontSize:12, color:"#6CF06C",
             textAlign:"center", marginBottom:18 }}>
@@ -817,15 +868,16 @@ function DraftScreen({ config, onDone, tokens, setTokens }) {
       )}
 
       <div style={{ textAlign:"center", marginTop:18, position:"relative" }}>
-        <button onClick={() => setHelpOpen(true)} title="How to play" style={{
-          position:"absolute", right:6, top:0, width:38, height:38, borderRadius:"50%",
+        <button onClick={() => setHelpOpen(true)} title="How to play" aria-label="How to play"
+          className="helpBtn" style={{
+          position:"absolute", right:6, top:0, width:44, height:44, borderRadius:"50%",
           fontFamily:"'Press Start 2P', monospace", fontSize:14, cursor:"pointer",
           background:"transparent", color:"#FFCB05", border:"2px solid #FFCB05",
           boxShadow:"0 0 12px #FFCB0533" }}>?</button>
         <div style={{ fontFamily:"'Press Start 2P', monospace", color:"#FFCB05", fontSize:"clamp(14px,4.4vw,18px)" }}>
           DRAFT — PICK {slot}/6
         </div>
-        <div style={{ color:"#9aa6cf", fontFamily:"'IBM Plex Mono', monospace", fontSize:12, marginTop:8,
+        <div className="metaRow" style={{ color:"#9aa6cf", fontFamily:"'IBM Plex Mono', monospace", fontSize:12, marginTop:8,
           display:"flex", gap:14, justifyContent:"center", flexWrap:"wrap" }}>
           <span>{DIFFS[config.diff].label} MODE</span>
           <span>POOL <b style={{color:"#5BC8F5"}}>{config.pool===8?"ALL":config.pool} REGION{(config.pool||8)>1?"S":""}</b></span>
@@ -835,7 +887,7 @@ function DraftScreen({ config, onDone, tokens, setTokens }) {
       </div>
 
       {/* reels — each with its own randomizer, no picking allowed */}
-      <div style={{ display:"flex", gap:26, justifyContent:"center", marginTop:18, flexWrap:"wrap" }}>
+      <div className="reelsRow" style={{ display:"flex", gap:26, justifyContent:"center", marginTop:18, flexWrap:"wrap" }}>
         <Reel label="REGION REEL" options={regionOptions} value={genF}
           landed={current ? { label: REGIONS[current.gen-1].name.toUpperCase(), color: REGIONS[current.gen-1].color } : null}
           spinning={reelSpin === "region" || (rolling && lastSpin === "all" && genF === 0)}
@@ -847,7 +899,7 @@ function DraftScreen({ config, onDone, tokens, setTokens }) {
           onSpin={spinTypeReel}
           disabled={!rolledOnce || rerolls <= 0 || busy}/>
       </div>
-      <div style={{ textAlign:"center", color:"#5a6488", fontSize:11, marginTop:8, fontFamily:"'IBM Plex Mono', monospace" }}>
+      <div className="spinHint" style={{ textAlign:"center", color:"#7d87ad", fontSize:11, marginTop:8, fontFamily:"'IBM Plex Mono', monospace" }}>
         {!rolledOnce
           ? "first spin is free — everything is random, reels included"
           : rerolls > 0
@@ -903,7 +955,7 @@ function DraftScreen({ config, onDone, tokens, setTokens }) {
               )}
             </div>
           ) : (
-            <div style={{ color:"#5a6488", fontFamily:"'Press Start 2P', monospace", fontSize:12, textAlign:"center", lineHeight:2 }}>
+            <div style={{ color:"#7d87ad", fontFamily:"'Press Start 2P', monospace", fontSize:12, textAlign:"center", lineHeight:2 }}>
               {reelSpin ? `${reelSpin === "region" ? "REGION" : "TYPE"} REEL\nSPINNING…`.split("\n").map((l,i)=><div key={i}>{l}</div>)
                 : pool.length === 0 ? "NO POKÉMON MATCH REELS" : "PRESS SPIN"}
             </div>
@@ -924,7 +976,7 @@ function DraftScreen({ config, onDone, tokens, setTokens }) {
               </div>
             </>
           ) : (
-            <div style={{ color:"#3a4368", fontFamily:"'Press Start 2P', monospace", fontSize:9,
+            <div style={{ color:"#5f6a96", fontFamily:"'Press Start 2P', monospace", fontSize:9,
               textAlign:"center", lineHeight:2.2 }}>SPIN TO REVEAL<br/>STATS</div>
           )}
         </div>
@@ -942,7 +994,7 @@ function DraftScreen({ config, onDone, tokens, setTokens }) {
             <Btn onClick={openTrade} disabled={busy || tokens<=0} color="#B07CF5">
               🧬→🎰 TRADE ({tokens})
             </Btn>
-            <Btn big onClick={lockIn} disabled={busy || !current} color="#6CF06C">
+            <Btn big cls="primaryAction" onClick={lockIn} disabled={busy || !current} color="#6CF06C">
               ✔ LOCK IN
             </Btn>
           </>
@@ -957,11 +1009,11 @@ function DraftScreen({ config, onDone, tokens, setTokens }) {
             {team[i] ? (
               <>
                 <Sprite id={team[i].id} size={56}/>
-                <div style={{ fontSize:8, color:"#cfd6f4", fontFamily:"'Press Start 2P', monospace",
+                <div style={{ fontSize:9, color:"#cfd6f4", fontFamily:"'Press Start 2P', monospace",
                   marginTop:2, maxWidth:84, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                   {team[i].name}
                 </div>
-                <div style={{ fontSize:8, color:TIER_COLORS[tierOf(team[i].bst)], fontFamily:"'Press Start 2P', monospace", marginTop:2 }}>
+                <div style={{ fontSize:9, color:TIER_COLORS[tierOf(team[i].bst)], fontFamily:"'Press Start 2P', monospace", marginTop:2 }}>
                   {tierOf(team[i].bst)} · LV.{team[i].level}
                 </div>
                 <div style={{ marginTop:4 }}>
@@ -973,7 +1025,7 @@ function DraftScreen({ config, onDone, tokens, setTokens }) {
                 </div>
               </>
             ) : (
-              <div style={{ color:"#3a4368", fontFamily:"'Press Start 2P', monospace", fontSize:16 }}>{i+1}</div>
+              <div style={{ color:"#5f6a96", fontFamily:"'Press Start 2P', monospace", fontSize:16 }}>{i+1}</div>
             )}
           </div>
         ))}
@@ -1040,9 +1092,9 @@ function TeamReportScreen({ config, team, setTeam, tokens, setTokens, onEnter })
           {team.map((p, i) => (
             <div key={p.id} style={{ width:96 }}>
               <Sprite id={p.id} size={74} glow={TYPE_COLORS[p.types[0]]}/>
-              <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:8, color:"#cfd6f4",
+              <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:9, color:"#cfd6f4",
                 overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name}</div>
-              <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:8, color:TIER_COLORS[tierOf(p.bst)] }}>
+              <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:9, color:TIER_COLORS[tierOf(p.bst)] }}>
                 {tierOf(p.bst)} · LV.{p.level}
               </div>
               <div style={{ marginTop:4 }}>
@@ -1118,43 +1170,76 @@ function GauntletScreen({ config, team, setTeam, tokens, setTokens, onFinish }) 
     const second = sorted[1].p;
     const weakest = sorted[sorted.length-1].p;
 
-    const fxFor = (p) => {
-      const t = pick(p.types);
-      const m = eff(t, aceP.types);
-      const mv = pick(MOVES[t]);
-      return { mv, m };
+    const KO = ["fainted!", "is down!", "can't continue!"];
+    const atkLine = (a, d) => {
+      const best = [...a.types].sort((x, y) => eff(y, d.types) - eff(x, d.types))[0];
+      const m = eff(best, d.types);
+      const mv = pick(MOVES[best]);
+      if (m >= 2) return { t:`${a.name.toUpperCase()}'s ${mv} slams ${d.name.toUpperCase()} — SUPER EFFECTIVE!`, c:"#6CF06C" };
+      if (m === 0) return { t:`${d.name.toUpperCase()} is immune to ${a.name.toUpperCase()}'s ${mv}...`, c:"#F85888" };
+      if (m < 1) return { t:`${a.name.toUpperCase()}'s ${mv} barely scratches ${d.name.toUpperCase()}...`, c:"#F4A95C" };
+      return { t:`${a.name.toUpperCase()} hits ${d.name.toUpperCase()} with ${mv}!`, c:"#fff" };
+    };
+    const counterLine = (m, target) => {
+      const mt = pick(m.types);
+      const mv = pick(MOVES[mt]);
+      const e = eff(mt, target.types);
+      if (e >= 2) return { t:`${m.name.toUpperCase()} retaliates with ${mv} — ${target.name.toUpperCase()} is hurt badly!`, c:"#F85888" };
+      if (e === 0) return { t:`${target.name.toUpperCase()} shrugs off ${m.name.toUpperCase()}'s ${mv}!`, c:"#cfd6f4" };
+      if (e < 1) return { t:`${m.name.toUpperCase()}'s ${mv} glances off ${target.name.toUpperCase()}!`, c:"#cfd6f4" };
+      return { t:`${m.name.toUpperCase()} counters with ${mv}!`, c:"#F4A95C" };
     };
 
     const lines = [];
-    lines.push({ t:`${leader.name.toUpperCase()} sends out ${aceP.name.toUpperCase()}!`, c:"#9aa6cf" });
-    const f1 = fxFor(mvp);
-    lines.push({ t:`${mvp.name.toUpperCase()} opens with ${f1.mv}!`, c:"#fff" });
-    if (f1.m >= 2) lines.push({ t:"IT'S SUPER EFFECTIVE!", c:"#6CF06C" });
-    else if (f1.m === 0) lines.push({ t:"It has no effect...", c:"#F85888" });
-    else if (f1.m < 1) lines.push({ t:"It's not very effective...", c:"#F4A95C" });
-    else lines.push({ t:"A clean hit!", c:"#cfd6f4" });
-    lines.push({ t:`${aceP.name.toUpperCase()} strikes back with ${pick(MOVES[leader.type])}!`, c:"#F85888" });
-    const inc = eff(leader.type, weakest.types);
-    if (inc >= 2) lines.push({ t:`${weakest.name.toUpperCase()} is in serious trouble!`, c:"#F85888" });
-    else lines.push({ t:`${weakest.name.toUpperCase()} hangs on!`, c:"#cfd6f4" });
-    const f2 = fxFor(second);
-    lines.push({ t:`${second.name.toUpperCase()} fires off ${f2.mv}!`, c:"#fff" });
+    const rotation = [...team].sort(() => Math.random() - 0.5); // all 6 of YOUR Pokémon take turns
+    const mentioned = new Set();
+    let rot = 0;
+    const n = bteam.length;
+    // distribute your 6 attackers across their whole squad
+    const beats = bteam.map((_, i) => Math.floor(6 / n) + (i < 6 % n ? 1 : 0));
+    // win: every enemy member goes down · loss: you fall partway (usually at the ace)
+    const koCount = win ? n : Math.max(1, n - 1 - (Math.random() < 0.35 ? Math.floor(Math.random() * (n - 1)) : 0));
+
+    for (let i = 0; i < n; i++) {
+      const m = bteam[i];
+      lines.push({ t:`${leader.name.toUpperCase()} sends out ${m.name.toUpperCase()}${i === n - 1 ? " — THE ACE" : ""}!`, c:"#9aa6cf" });
+      if (i < koCount) {
+        for (let b = 0; b < Math.max(1, beats[i]); b++) {
+          const a = rotation[rot++ % 6];
+          mentioned.add(a.id);
+          lines.push(atkLine(a, m));
+          if (b === 0 && Math.random() < 0.5) {
+            const target = rotation[rot % 6];
+            mentioned.add(target.id);
+            lines.push(counterLine(m, target));
+          }
+        }
+        lines.push({ t:`${m.name.toUpperCase()} ${pick(KO)}`, c:"#6CF06C" });
+      } else {
+        const a = rotation[rot++ % 6];
+        mentioned.add(a.id);
+        lines.push(atkLine(a, m));
+        lines.push({ t:`${m.name.toUpperCase()} unleashes everything!`, c:"#F85888" });
+        const rest = team.filter((p) => !mentioned.has(p.id));
+        if (rest.length)
+          lines.push({ t:`${rest.map((p) => p.name.toUpperCase()).join(", ")} rush in — but it's not enough!`, c:"#F85888" });
+        const reserves = bteam.slice(i + 1);
+        lines.push({ t:`Your squad is wiped out...${reserves.length ? ` ${leader.name.toUpperCase()} never even needed ${reserves.map((x) => x.name.toUpperCase()).join(" and ")}.` : ""}`, c:"#F85888" });
+        break;
+      }
+    }
     if (win) {
-      lines.push({ t:`${aceP.name.toUpperCase()} is barely standing...`, c:"#F4A95C" });
-      lines.push({ t:`${mvp.name.toUpperCase()} lands the finisher — ${pick(MOVES[pick(mvp.types)])}!`, c:"#6CF06C" });
+      lines.push({ t:`${leader.name.toUpperCase()} is out of Pokémon!`, c:"#6CF06C" });
       if (leader.role === "GYM" && DIFFS[config.diff].tokenPerGym)
         lines.push({ t:`🧬 Evolution Token earned!`, c:"#B07CF5" });
       if (leader.role === "GYM")
         lines.push({ t:`🔄 Replacement Spin earned!`, c:"#5BC8F5" });
-    } else {
-      lines.push({ t:`${aceP.name.toUpperCase()} unleashes everything!`, c:"#F85888" });
-      lines.push({ t:`Your squad can't withstand the assault...`, c:"#F85888" });
     }
 
     let t = 350;
     lines.forEach((ln) => {
       timers.current.push(setTimeout(() => setLog((l) => [...l, ln]), wait(t)));
-      t += 620;
+      t += 500;
     });
     timers.current.push(setTimeout(() => setPhase("verdict"), wait(t + 350)));
   }, [prob, leader, team, bteam]);
@@ -1248,7 +1333,7 @@ function GauntletScreen({ config, team, setTeam, tokens, setTokens, onFinish }) 
           <div style={{ fontFamily:"'Press Start 2P', monospace", color:"#6CF06C", fontSize:"clamp(10px,3vw,13px)" }}>
             {wins}-0 <span style={{ color:"#B07CF5", marginLeft:10 }}>🧬{tokens}</span>{repSpins > 0 && <span style={{ color:"#5BC8F5", marginLeft:10 }}>🔄{repSpins}</span>}
           </div>
-          <button onClick={()=>setFast(!fast)} style={{
+          <button onClick={()=>setFast(!fast)} aria-pressed={fast} aria-label="Toggle fast forward" style={{
             fontFamily:"'Press Start 2P', monospace", fontSize:9, padding:"7px 10px",
             background: fast ? "#FFCB05" : "transparent", color: fast ? "#0b0f1e" : "#9aa6cf",
             border:"2px solid " + (fast ? "#FFCB05" : "#2a3354"), borderRadius:5, cursor:"pointer" }}>
@@ -1319,11 +1404,11 @@ function GauntletScreen({ config, team, setTeam, tokens, setTokens, onFinish }) 
                 border: i === bteam.length-1 ? "1px solid #FFCB0566" : "1px solid #1c2440" }}>
                 {i === bteam.length-1 && (
                   <div style={{ position:"absolute", top:-7, left:"50%", transform:"translateX(-50%)",
-                    fontFamily:"'Press Start 2P', monospace", fontSize:6, color:"#0b0f1e",
+                    fontFamily:"'Press Start 2P', monospace", fontSize:7, color:"#0b0f1e",
                     background:"#FFCB05", padding:"2px 5px", borderRadius:3 }}>ACE</div>
                 )}
                 <Sprite id={m.id} size={46}/>
-                <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:6, color:"#cfd6f4",
+                <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:8, color:"#cfd6f4",
                   overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginTop:2 }}>{m.name}</div>
                 <div style={{ display:"flex", gap:2, justifyContent:"center", marginTop:3, flexWrap:"wrap" }}>
                   {m.types.map((t) => (
@@ -1353,17 +1438,17 @@ function GauntletScreen({ config, team, setTeam, tokens, setTokens, onFinish }) 
                     {adv > 0 ? "▲" : adv < 0 ? "▼" : "–"} {pct > 0 ? `+${pct}` : pct}%
                   </div>
                   <Sprite id={p.id} size={46}/>
-                  <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:6, color:"#cfd6f4",
+                  <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:8, color:"#cfd6f4",
                     overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginTop:2 }}>{p.name}</div>
                   <div style={{ fontFamily:"'IBM Plex Mono', monospace", fontSize:10, marginTop:2 }}>
-                    <span style={{ color:"#5a6488" }}>LV.{p.level}→</span><b style={{ color:col }}>{battleLv}</b>
+                    <span style={{ color:"#7d87ad" }}>LV.{p.level}→</span><b style={{ color:col }}>{battleLv}</b>
                   </div>
                 </div>
               );
             })}
           </div>
           <div style={{ textAlign:"center", fontFamily:"'IBM Plex Mono', monospace", fontSize:10,
-            color:"#5a6488", marginTop:8 }}>
+            color:"#7d87ad", marginTop:8 }}>
             ▲ type advantage boosts battle stats · ▼ weakness reduces them · capped at ±10%
           </div>
         </div>
@@ -1440,9 +1525,9 @@ function GauntletScreen({ config, team, setTeam, tokens, setTokens, onFinish }) 
                               onMouseEnter={(e)=>e.currentTarget.style.borderColor="#5BC8F5"}
                               onMouseLeave={(e)=>e.currentTarget.style.borderColor="#2a3354"}>
                               <Sprite id={p.id} size={44}/>
-                              <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:6, color:"#cfd6f4",
+                              <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:8, color:"#cfd6f4",
                                 overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name}</div>
-                              <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:7, color:"#F85888", marginTop:2 }}>SWAP ⇄</div>
+                              <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:8, color:"#F85888", marginTop:2 }}>SWAP ⇄</div>
                             </button>
                           ))}
                         </div>
@@ -1464,7 +1549,7 @@ function GauntletScreen({ config, team, setTeam, tokens, setTokens, onFinish }) 
                   {team.map((p, i) => canEvolve(p) && (
                     <div key={p.id} style={{ textAlign:"center" }}>
                       <Sprite id={p.id} size={52}/>
-                      <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:7, color:"#cfd6f4", marginBottom:4 }}>{p.name}</div>
+                      <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:8, color:"#cfd6f4", marginBottom:4 }}>{p.name}</div>
                       <EvolveControl compact p={p} tokens={tokens}
                         onEvolve={(np) => { setTokens((t) => t - 1);
                           const nt = team.map((m, j) => j === i ? np : m);
@@ -1565,7 +1650,8 @@ Can your squad go ${target}-0?`;
       try { await document.fonts.ready; } catch {}
       const sheet = new Image();
       sheet.src = POKESHEET;
-      try { await sheet.decode(); } catch {}
+      let sheetReady = true;
+      try { await sheet.decode(); } catch { sheetReady = false; }
       if (cancelled) return;
 
       const W = 1080, H = 1350;
@@ -1634,7 +1720,17 @@ Can your squad go ${target}-0?`;
         ctx.fillStyle = "rgba(17,23,46,.85)";
         ctx.strokeStyle = TYPE_COLORS[p.types[0]]; ctx.lineWidth = 4;
         roundRect(ctx, dx + 12, dy, cell - 24, cell + 36, 18); ctx.fill(); ctx.stroke();
-        ctx.drawImage(sheet, col*SHEET_CELL, row*SHEET_CELL, SHEET_CELL, SHEET_CELL, dx + 28, dy + 8, cell - 56, cell - 56);
+        if (sheetReady) {
+          ctx.drawImage(sheet, col*SHEET_CELL, row*SHEET_CELL, SHEET_CELL, SHEET_CELL, dx + 28, dy + 8, cell - 56, cell - 56);
+        } else {
+          const cx2 = dx + cell/2, cy2 = dy + (cell-40)/2 + 20, r2 = (cell-90)/2;
+          ctx.beginPath(); ctx.arc(cx2, cy2, r2, Math.PI, 0); ctx.fillStyle = "#E3350D"; ctx.fill();
+          ctx.beginPath(); ctx.arc(cx2, cy2, r2, 0, Math.PI); ctx.fillStyle = "#fff"; ctx.fill();
+          ctx.beginPath(); ctx.arc(cx2, cy2, r2*.3, 0, Math.PI*2); ctx.fillStyle = "#fff"; ctx.fill();
+          ctx.lineWidth = 5; ctx.strokeStyle = "#0b0f1e";
+          ctx.beginPath(); ctx.arc(cx2, cy2, r2, 0, Math.PI*2); ctx.stroke();
+          ctx.beginPath(); ctx.arc(cx2, cy2, r2*.3, 0, Math.PI*2); ctx.stroke();
+        }
         ctx.fillStyle = "#cfd6f4"; ctx.font = px(13);
         ctx.fillText(p.name.length > 11 ? p.name.slice(0, 10) + "…" : p.name, dx + cell/2, dy + cell - 28);
         ctx.fillStyle = "#6CF06C"; ctx.font = mono(22, 600);
@@ -1721,9 +1817,9 @@ Can your squad go ${target}-0?`;
           {team.map((p) => (
             <div key={p.id} style={{ width:86 }}>
               <Sprite id={p.id} size={70} glow={TYPE_COLORS[p.types[0]]}/>
-              <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:8, color:"#cfd6f4",
+              <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:9, color:"#cfd6f4",
                 overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name}</div>
-              <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:8, color:TIER_COLORS[tierOf(p.bst)] }}>LV.{p.level}</div>
+              <div style={{ fontFamily:"'Press Start 2P', monospace", fontSize:9, color:TIER_COLORS[tierOf(p.bst)] }}>LV.{p.level}</div>
             </div>
           ))}
         </div>
@@ -1786,7 +1882,7 @@ export default function App() {
           background: repeating-linear-gradient(0deg, rgba(255,255,255,.022) 0 1px, transparent 1px 3px); }
         .panel { background: rgba(17,23,46,.82); border: 2px solid #2a3354; border-radius: 12px;
           padding: 18px; backdrop-filter: blur(4px); }
-        .panelTitle { font-family:'Press Start 2P', monospace; font-size: 10px; color:#5a6488;
+        .panelTitle { font-family:'Press Start 2P', monospace; font-size: 10px; color:#7d87ad;
           letter-spacing: 2px; margin-bottom: 14px; text-align: center; }
         .chip { padding: 12px 14px; border-radius: 8px; border: 2px solid; cursor: pointer;
           min-width: 150px; max-width: 190px; transition: all .15s; }
@@ -1860,6 +1956,16 @@ export default function App() {
 
         /* ---------- mobile-first refinements ---------- */
         @media (max-width: 560px) {
+          /* declutter: HUD already shows spins/tokens/pick/pool — hide duplicates */
+          .metaRow { display: none !important; }
+          .reelHint { display: none !important; }
+          .reelsRow { gap: 12px !important; margin-top: 12px !important; }
+          .spinHint { font-size: 12px !important; padding: 0 6px; line-height: 1.6; }
+          /* solid nav bar on mobile — no glass */
+          .hud { background: #0a0e1c !important; backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important; }
+          .helpBtn { width: 44px !important; height: 44px !important; }
+          .primaryAction { flex: 1 1 100% !important; order: 5; }
           .gbtn { flex: 1 1 auto; max-width: 100%; }
           .screen { padding: 0 10px; }
           .panel { padding: 13px 11px; border-radius: 10px; }
@@ -1875,6 +1981,13 @@ export default function App() {
         @media (max-width: 380px) {
           .reelWindow { width: 32vw; }
           .reelWindow > div { font-size: 8px !important; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          *, *::before, *::after {
+            animation-duration: .01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: .01ms !important;
+          }
         }
       `}</style>
       <div className="bgfx"/>
@@ -1902,11 +2015,11 @@ export default function App() {
       )}
 
       <div style={{ position:"relative", zIndex:2, textAlign:"center", padding:"14px 16px 30px",
-        color:"#3a4368", fontSize:10, fontFamily:"'IBM Plex Mono', monospace", lineHeight:1.8 }}>
+        color:"#5f6a96", fontSize:11, fontFamily:"'IBM Plex Mono', monospace", lineHeight:1.8 }}>
         <div>
           POKÉ GAUNTLET is a free, <b>non-commercial</b> fan-made game by{" "}
           <a href="https://arommedis.com" target="_blank" rel="noopener noreferrer"
-            style={{ color:"#5a6488", textDecoration:"underline" }}>Arom Medis</a>.
+            style={{ color:"#7d87ad", textDecoration:"underline" }}>Arom Medis</a>.
           It is not monetized in any way — no ads, no purchases, no revenue.
         </div>
         <div>
