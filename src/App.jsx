@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { Analytics } from "@vercel/analytics/react";
 
 /* ============================================================
    POKÉ GAUNTLET — Can you go 13-0?
@@ -2028,6 +2029,7 @@ export default function App() {
         </div>
         <div>Pokémon data &amp; sprites via PokéAPI · trainer sprites via Smogon.</div>
       </div>
+      <Analytics />
     </div>
   );
 }
